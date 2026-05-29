@@ -35,6 +35,10 @@ jobs:
         if: ${{ github.event.inputs.youtube_url != '' }}
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          API_ID:    ${{ secrets.API_ID }}
+          API_HASH:  ${{ secrets.API_HASH }}
+          CHAT_ID:   ${{ secrets.CHAT_ID }}
+          PYTHONUTF8: "1"
         run: |
           python bot.py "${{ github.event.inputs.youtube_url }}" --quality ${{ github.event.inputs.quality }}
 
