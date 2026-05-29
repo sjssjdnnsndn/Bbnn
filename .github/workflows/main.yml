@@ -1,0 +1,82 @@
+name: rdp-workflow
+
+on:
+  workflow_dispatch:
+    inputs:
+      youtube_url:
+        description: 'YouTube URL to scrape (optional)'
+        required: false
+        default: ''
+      quality:
+        description: 'Quality: best | 1080p | 720p | 480p | 360p | 144p'
+        required: false
+        default: 'best'
+
+jobs:
+  secure-rdp:
+    runs-on: windows-2025
+    timeout-minutes: 330
+
+    steps:
+      - name: Step 1 - Checkout Repo
+        uses: actions/checkout@v4
+
+      - name: Step 2 - Python Setup
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Step 3 - Install Bot Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Step 4 - Run YouTube Bot
+        if: ${{ github.event.inputs.youtube_url != '' }}
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+        run: |
+          python bot.py "${{ github.event.inputs.youtube_url }}" --quality ${{ github.event.inputs.quality }}
+
+      - name: Step 5 - RDP Setup
+        env:
+          RDP_PASSWORD: ${{ secrets.RDP_PASSWORD }}
+          TS_AUTHKEY: ${{ secrets.TAILSCALE_AUTHKEY }}
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+        run: |
+          $ErrorActionPreference = "SilentlyContinue"
+          $ProgressPreference = "SilentlyContinue"
+          Set-ItemProperty 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name fDenyTSConnections -Value 0 -Force
+          Set-ItemProperty 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name UserAuthentication -Value 1 -Force
+          netsh advfirewall firewall add rule name="RDP-Tailscale" dir=in action=allow protocol=TCP localport=3389
+          Restart-Service TermService -Force
+          $securePass = ConvertTo-SecureString $env:RDP_PASSWORD -AsPlainText -Force
+          if (-not (Get-LocalUser -Name "BDL" -ErrorAction SilentlyContinue)) {
+              New-LocalUser -Name "BDL" -Password $securePass -AccountNeverExpires
+          }
+          Add-LocalGroupMember -Group Administrators -Member BDL -ErrorAction SilentlyContinue
+          Add-LocalGroupMember -Group "Remote Desktop Users" -Member BDL -ErrorAction SilentlyContinue
+          $url = "https://pkgs.tailscale.com/stable/tailscale-setup-1.92.3-amd64.msi"
+          $path = "$env:TEMP\tailscale.msi"
+          Invoke-WebRequest $url -OutFile $path
+          Start-Process msiexec.exe -ArgumentList "/i `"$path`" /quiet /norestart" -Wait
+          Remove-Item $path -Force
+          & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=$env:TS_AUTHKEY --hostname=gh-$env:GITHUB_RUN_ID
+          for ($i=0; $i -lt 10; $i++) {
+              $ip = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
+              if ($ip) { break }
+              Start-Sleep 5
+          }
+          if (-not $ip) { exit 1 }
+          [System.Environment]::SetEnvironmentVariable("BOT_TOKEN", $env:BOT_TOKEN, "Machine")
+          Write-Host "RDP Ready! Tailscale IP: $ip"
+          Write-Host "Username: BDL"
+          Write-Host "Bot location: $env:GITHUB_WORKSPACE\bot.py"
+
+      - name: Step 6 - Keep Alive
+        run: |
+          $endTime = (Get-Date).AddMinutes(325)
+          while ((Get-Date) -lt $endTime) {
+              Start-Sleep -Seconds 60
+              Write-Host "RDP Active - $(Get-Date)"
+          }
