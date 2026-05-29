@@ -1,0 +1,2 @@
+curl_cffi
+yt-dlp>=2024.1.1
