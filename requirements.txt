@@ -1,2 +1,4 @@
-curl_cffi
 yt-dlp>=2024.1.1
+pyrogram>=2.0.0
+tgcrypto>=1.2.0
+curl_cffi>=0.6.0
